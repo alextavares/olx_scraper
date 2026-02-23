@@ -9,8 +9,16 @@ from bs4 import BeautifulSoup
 
 DB_FILE = "olx_imoveis.db"
 # Lendo as chaves do ambiente (Configurado la no GitHub Secrets)
-TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8744563469:AAFgKvhcPPSG-QWU19aWJGVZZAvswcd29JM")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "8427371764")
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    print("AVISO: Variáveis de ambiente TELEGRAM_TOKEN ou TELEGRAM_CHAT_ID não encontradas.")
+    # Fallback para as chaves locais (apenas para teste no PC do usuário)
+    if not TELEGRAM_TOKEN: TELEGRAM_TOKEN = "8744563469:AAFgKvhcPPSG-QWU19aWJGVZZAvswcd29JM"
+    if not TELEGRAM_CHAT_ID: TELEGRAM_CHAT_ID = "8427371764"
+else:
+    print("Sucesso: Chaves do Telegram carregadas do ambiente.")
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)

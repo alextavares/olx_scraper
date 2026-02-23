@@ -9,6 +9,8 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Necessário para o robô poder salvar o banco de dados de volta no GitHub
 
     steps:
       - name: Checkout Repo
@@ -39,12 +41,18 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python olx_scraper.py
+        continue-on-error: true # Se falhar a raspagem, ainda tentamos salvar o que deu certo no DB
           
-      - name: Commit changes to SQLite DB
+      - name: Commit and Push changes
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add olx_imoveis.db
-          # Só faz o commit se houverem mudanças no banco de dados (novos imóveis salvos)
-          git commit -m "bot: atualiza banco de dados com novos imóveis da olx" || echo "Sem mudanças no DB para comitar"
-          git push
+          if git diff --staged --quiet; then
+            echo "Nenhuma mudança detectada no banco de dados."
+          else
+            git commit -m "bot: atualiza banco de dados com novos imóveis da olx"
+            git push origin main
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
