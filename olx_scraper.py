@@ -29,6 +29,15 @@ def init_db():
             notified BOOLEAN DEFAULT 0
         )
     ''')
+    
+    # Migração automática de colunas antigas (caso o DB no GitHub esteja desatualizado)
+    cursor.execute("PRAGMA table_info(imoveis)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if "source_site" not in columns:
+        cursor.execute("ALTER TABLE imoveis ADD COLUMN source_site TEXT DEFAULT 'olx'")
+    if "ad_type" not in columns:
+        cursor.execute("ALTER TABLE imoveis ADD COLUMN ad_type TEXT DEFAULT 'owner'")
+        
     conn.commit()
     conn.close()
 
@@ -138,7 +147,8 @@ async def scrape_riviera(page):
                 if not href.startswith('http'): href = "https://www.rivieraimoveis.com" + href
                 
                 # Gerar um ID baseado no final da URL
-                ad_id = "riv-" + href.split('/')[-1].split('?')[0]
+                raw_id = href.split('/')[-1].split('?')[0]
+                ad_id = f"riv-{raw_id}"
                 
                 ads.append({
                     "id": ad_id,
