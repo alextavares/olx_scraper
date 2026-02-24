@@ -116,32 +116,36 @@ async def scrape_olx(page, base_url, ad_type):
     return all_ads
 
 async def scrape_riviera(page):
-    url = "https://www.rivieraimoveis.com/imoveis/venda/sao-sebastiao-sp"
+    url = "https://www.rivieraimoveis.com/imobiliaria/venda/sao-sebastiao-sp/imoveis/364/1"
     print(f"Buscando RIVIERA: {url}")
     ads = []
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(5000)
+        await page.wait_for_timeout(10000) # Site pesado, espera 10s
         content = await page.content()
         soup = BeautifulSoup(content, 'html.parser')
         cards = soup.select('article.c49-property-card')
+        print(f"Riviera: {len(cards)} cards encontrados.")
         for card in cards:
             link_tag = card.select_one('a.c49btn-details')
-            title_tag = card.select_one('.c49-property-card_title')
-            price_tag = card.select_one('.c49-property-card_rent-price')
-            loc_tag = card.select_one('.c49-property-card_address')
+            # Título pode estar em h2 ou no link
+            title_tag = card.select_one('h2') or card.select_one('.c49-property-card_title')
+            price_tag = card.select_one('.c49-property-card_rent-price') or card.find(lambda tag: tag.name == 'div' and 'R$' in tag.text)
+            loc_tag = card.select_one('.c49-property-card_address') or card.select_one('.c49-property-card_header div')
             
             if link_tag and title_tag:
                 href = link_tag.get('href')
                 if not href.startswith('http'): href = "https://www.rivieraimoveis.com" + href
-                # Riviera ID can be the last part of URL or a hash
+                
+                # Gerar um ID baseado no final da URL
                 ad_id = "riv-" + href.split('/')[-1].split('?')[0]
+                
                 ads.append({
                     "id": ad_id,
                     "title": title_tag.get_text(strip=True),
                     "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
                     "url": href,
-                    "location": loc_tag.get_text(strip=True) if loc_tag else "S. Sebastião",
+                    "location": loc_tag.get_text(strip=True) if loc_tag else "São Sebastião",
                     "category": "Venda"
                 })
     except Exception as e:
