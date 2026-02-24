@@ -7,6 +7,10 @@ from datetime import datetime
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 
+# Novos módulos (IA e Mensageria)
+from telegram_sender import TelegramSender
+from ai_contact_logic import AIContactLogic
+
 DB_FILE = "olx_imoveis.db"
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "8744563469:AAFgKvhcPPSG-QWU19aWJGVZZAvswcd29JM")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "8427371764")
@@ -26,7 +30,8 @@ def init_db():
             source_site TEXT DEFAULT 'olx',
             ad_type TEXT DEFAULT 'owner',
             date_added TIMESTAMP,
-            notified BOOLEAN DEFAULT 0
+            notified BOOLEAN DEFAULT 0,
+            contacted BOOLEAN DEFAULT 0
         )
     ''')
     
@@ -37,6 +42,8 @@ def init_db():
         cursor.execute("ALTER TABLE imoveis ADD COLUMN source_site TEXT DEFAULT 'olx'")
     if "ad_type" not in columns:
         cursor.execute("ALTER TABLE imoveis ADD COLUMN ad_type TEXT DEFAULT 'owner'")
+    if "contacted" not in columns:
+        cursor.execute("ALTER TABLE imoveis ADD COLUMN contacted BOOLEAN DEFAULT 0")
         
     conn.commit()
     conn.close()
@@ -97,9 +104,10 @@ def notify_new_ads():
 
 async def scrape_olx(page, base_url, ad_type):
     all_ads = []
+    print(f"Iniciando raspagem OLX: {ad_type}")
     for p_num in range(1, 3):
         url = f"{base_url}&o={p_num}" if p_num > 1 else base_url
-        print(f"Buscando OLX ({ad_type}): {url}")
+        print(f"Buscando OLX ({ad_type}) [p{p_num}]: {url}")
         try:
             await page.goto(url, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_timeout(3000)
@@ -109,6 +117,7 @@ async def scrape_olx(page, base_url, ad_type):
             if next_data:
                 data = json.loads(next_data.string)
                 ads_raw = data.get('props', {}).get('pageProps', {}).get('ads', [])
+                if not ads_raw: break
                 for a in ads_raw:
                     all_ads.append({
                         "id": a.get("listId"),
@@ -130,14 +139,13 @@ async def scrape_riviera(page):
     ads = []
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        await page.wait_for_timeout(10000) # Site pesado, espera 10s
+        await page.wait_for_timeout(10000) # Site pesado
         content = await page.content()
         soup = BeautifulSoup(content, 'html.parser')
         cards = soup.select('article.c49-property-card')
         print(f"Riviera: {len(cards)} cards encontrados.")
         for card in cards:
             link_tag = card.select_one('a.c49btn-details')
-            # Título pode estar em h2 ou no link
             title_tag = card.select_one('h2') or card.select_one('.c49-property-card_title')
             price_tag = card.select_one('.c49-property-card_rent-price') or card.find(lambda tag: tag.name == 'div' and 'R$' in tag.text)
             loc_tag = card.select_one('.c49-property-card_address') or card.select_one('.c49-property-card_header div')
@@ -145,11 +153,8 @@ async def scrape_riviera(page):
             if link_tag and title_tag:
                 href = link_tag.get('href')
                 if not href.startswith('http'): href = "https://www.rivieraimoveis.com" + href
-                
-                # Gerar um ID baseado no final da URL
                 raw_id = href.split('/')[-1].split('?')[0]
                 ad_id = f"riv-{raw_id}"
-                
                 ads.append({
                     "id": ad_id,
                     "title": title_tag.get_text(strip=True),
@@ -162,7 +167,147 @@ async def scrape_riviera(page):
         print(f"Erro Riviera: {e}")
     return ads
 
+async def scrape_iz(page):
+    url = "https://www.izimoveis.com.br/imoveis/a-venda/sao-sebastiao"
+    print(f"Buscando IZ IMÓVEIS: {url}")
+    ads = []
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(5000)
+        content = await page.content()
+        soup = BeautifulSoup(content, 'html.parser')
+        cards = soup.select('a.card-with-buttons')
+        print(f"IZ: {len(cards)} cards encontrados.")
+        for card in cards:
+            href = card.get('href')
+            if not href: continue
+            if not href.startswith('http'): href = "https://www.izimoveis.com.br" + href
+            
+            title_tag = card.select_one('h2')
+            price_tag = card.select_one('.card-with-buttons__value')
+            
+            if title_tag:
+                raw_id = href.split('/')[-1]
+                ad_id = f"iz-{raw_id}"
+                ads.append({
+                    "id": ad_id,
+                    "title": title_tag.get_text(strip=True),
+                    "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
+                    "url": href,
+                    "location": "São Sebastião",
+                    "category": "Venda"
+                })
+    except Exception as e:
+        print(f"Erro IZ: {e}")
+    return ads
+
+async def scrape_tropical(page):
+    url = "https://tropicalimobiliaria.com.br/comprar/sp/sao-sebastiao/pagina-1/"
+    print(f"Buscando TROPICAL: {url}")
+    ads = []
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(5000)
+        content = await page.content()
+        soup = BeautifulSoup(content, 'html.parser')
+        cards = soup.select('a.link_resultado')
+        print(f"Tropical: {len(cards)} cards encontrados.")
+        for card in cards:
+            href = card.get('href')
+            if not href: continue
+            
+            title_tag = card.select_one('h3')
+            price_tag = card.select_one('h5')
+            loc_tag = card.select_one('.final_card')
+            
+            if title_tag:
+                if not href.startswith('http'): 
+                    href = "https://tropicalimobiliaria.com.br" + href
+                # Extrair o ID/Ref do final da URL (geralmente tem um código)
+                raw_id = href.split('/')[-1] or href.split('/')[-2]
+                ad_id = f"trop-{raw_id}"
+                ads.append({
+                    "id": ad_id,
+                    "title": title_tag.get_text(strip=True),
+                    "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
+                    "url": href,
+                    "location": loc_tag.get_text(strip=True) if loc_tag else "São Sebastião",
+                    "category": "Venda"
+                })
+    except Exception as e:
+        print(f"Erro Tropical: {e}")
+    return ads
+
+async def scrape_adimov(page):
+    url = "https://www.adimov.com.br/imobiliaria/imoveis"
+    print(f"Buscando ADIMOV: {url}")
+    ads = []
+    try:
+        await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        await page.wait_for_timeout(8000)
+        content = await page.content()
+        soup = BeautifulSoup(content, 'html.parser')
+        cards = soup.select('article')
+        print(f"Adimov: {len(cards)} cards encontrados.")
+        for card in cards:
+            link_tag = card.select_one('a.c49btn-details')
+            title_tag = card.select_one('.c49-property-card_header h2')
+            price_tag = card.select_one('.c49-property-card_price')
+            
+            if link_tag and title_tag:
+                href = link_tag.get('href')
+                if not href.startswith('http'): href = "https://www.adimov.com.br" + href
+                raw_id = href.split('/')[-1].split('?')[0]
+                ad_id = f"adi-{raw_id}"
+                ads.append({
+                    "id": ad_id,
+                    "title": title_tag.get_text(strip=True),
+                    "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
+                    "url": href,
+                    "location": "São Sebastião",
+                    "category": "Venda"
+                })
+    except Exception as e:
+        print(f"Erro Adimov: {e}")
+    return ads
+
+async def process_owner_contacts():
+    """Busca novos proprietários (owners) e inicia o fluxo de contato via IA."""
+    print("Iniciando fluxo de contato via IA...")
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, title, price, url, location FROM imoveis WHERE ad_type = 'owner' AND contacted = 0 AND source_site = 'olx' LIMIT 5")
+    pending = cursor.fetchall()
+    
+    if not pending:
+        print("Nenhum proprietário pendente de contato.")
+        conn.close()
+        return
+
+    try:
+        ai = AIContactLogic()
+        if not hasattr(ai, 'draft_authorization_message'):
+            print("AVISO: AIContactLogic não possui o método draft_authorization_message. Verifique se o arquivo ai_contact_logic.py está correto.")
+            conn.close()
+            return
+
+        for ad in pending:
+            ad_id, title, price, url, location = ad
+            ad_details = {"title": title, "price": price, "location": location, "url": url, "professionalAd": False}
+            print(f"Gerando proposta para: {title}")
+            message = await ai.draft_authorization_message(ad_details)
+            print(f"--- MENSAGEM IA ---\n{message}\n-------------------")
+            cursor.execute("UPDATE imoveis SET contacted = 1 WHERE id = ?", (ad_id,))
+            conn.commit()
+    except Exception as e:
+        print(f"Erro no process_owner_contacts: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    conn.close()
+
 async def main():
+    print("--- Início da Rodada de Monitoramento ---")
     init_db()
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -181,8 +326,26 @@ async def main():
         ads_riviera = await scrape_riviera(page)
         save_new_imoveis(ads_riviera, "riviera", "competitor")
         
+        # 4. IZ Imóveis
+        ads_iz = await scrape_iz(page)
+        save_new_imoveis(ads_iz, "iz", "competitor")
+        
+        # 5. Tropical Imobiliária
+        ads_tropical = await scrape_tropical(page)
+        save_new_imoveis(ads_tropical, "tropical", "competitor")
+        
+        # 6. Adimov
+        ads_adimov = await scrape_adimov(page)
+        save_new_imoveis(ads_adimov, "adimov", "competitor")
+        
+        # Notificar novos via Telegram (Bot)
         notify_new_ads()
+        
+        # Processar contatos via IA (Somente novos proprietários)
+        await process_owner_contacts()
+        
         await browser.close()
+    print("--- Fim da Rodada ---")
 
 if __name__ == "__main__":
     asyncio.run(main())
