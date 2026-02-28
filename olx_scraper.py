@@ -380,11 +380,7 @@ async def main():
         except Exception as e:
             print(f"Erro ao notificar: {e}")
         
-        # Processar contatos via IA (Somente novos proprietários)
-        try:
-            await process_owner_contacts()
-        except Exception as e:
-            print(f"Erro no fluxo de IA: {e}")
+        # O fluxo de IA de contato foi desativado conforme solicitado
         
         await browser.close()
     print(f"--- Fim da Rodada: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
