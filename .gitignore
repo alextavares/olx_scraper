@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.log
+*.html
+ads.json
+debug_scraper.py
+test_telegram.py
+test_olx_prof.py
+debug_secondary_sites.py
+.venv/
+.env

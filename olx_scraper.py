@@ -80,9 +80,10 @@ def save_new_imoveis(ads, source_site, ad_type):
     return new_ads
 
 def notify_new_ads():
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Verificando novos anúncios para notificar...")
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
-    cursor.execute("SELECT id, title, price, url, location, source_site, ad_type FROM imoveis WHERE notified = 0 LIMIT 20")
+    cursor.execute("SELECT id, title, price, url, location, source_site, ad_type FROM imoveis WHERE notified = 0 LIMIT 100")
     unnotified_ads = cursor.fetchall()
     
     for ad in unnotified_ads:
@@ -100,6 +101,8 @@ def notify_new_ads():
         if send_telegram_message(message):
             cursor.execute("UPDATE imoveis SET notified = 1 WHERE id = ?", (ad_id,))
             conn.commit()
+    
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Notificações concluídas: {len(unnotified_ads)} processados.")
     conn.close()
 
 async def scrape_olx(page, base_url, ad_type):
@@ -127,10 +130,13 @@ async def scrape_olx(page, base_url, ad_type):
                         "location": a.get("location", "S. Sebastião"),
                         "category": a.get("category", "Imóvel")
                     })
-            else: break
+            else:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] AVISO: __NEXT_DATA__ não encontrado na OLX ({ad_type}).")
+                break
         except Exception as e:
-            print(f"Erro OLX: {e}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro OLX ({ad_type}): {e}")
             break
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fim raspagem OLX ({ad_type}): {len(all_ads)} anúncios encontrados.")
     return all_ads
 
 async def scrape_riviera(page):
@@ -150,21 +156,28 @@ async def scrape_riviera(page):
             price_tag = card.select_one('.c49-property-card_rent-price') or card.find(lambda tag: tag.name == 'div' and 'R$' in tag.text)
             loc_tag = card.select_one('.c49-property-card_address') or card.select_one('.c49-property-card_header div')
             
-            if link_tag and title_tag:
+            if link_tag and (title_tag or card.select_one('.c49-property-card_title')):
                 href = link_tag.get('href')
                 if not href.startswith('http'): href = "https://www.rivieraimoveis.com" + href
+                
+                # ID mais robusto
                 raw_id = href.split('/')[-1].split('?')[0]
+                if not raw_id or raw_id == '1':
+                    # Fallback para o penúltimo segmento se o último for 1 ou vazio
+                    raw_id = href.split('/')[-2]
+                
                 ad_id = f"riv-{raw_id}"
                 ads.append({
                     "id": ad_id,
-                    "title": title_tag.get_text(strip=True),
+                    "title": (title_tag or card.select_one('.c49-property-card_title')).get_text(strip=True),
                     "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
                     "url": href,
                     "location": loc_tag.get_text(strip=True) if loc_tag else "São Sebastião",
                     "category": "Venda"
                 })
     except Exception as e:
-        print(f"Erro Riviera: {e}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro Riviera: {e}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fim RIVIERA: {len(ads)} ads.")
     return ads
 
 async def scrape_iz(page):
@@ -186,19 +199,22 @@ async def scrape_iz(page):
             title_tag = card.select_one('h2')
             price_tag = card.select_one('.card-with-buttons__value')
             
-            if title_tag:
-                raw_id = href.split('/')[-1]
+            if title_tag or card.select_one('.card-with-buttons__title'):
+                real_title_tag = title_tag or card.select_one('.card-with-buttons__title')
+                # ID limpo (sem query params)
+                raw_id = href.split('/')[-1].split('?')[0]
                 ad_id = f"iz-{raw_id}"
                 ads.append({
                     "id": ad_id,
-                    "title": title_tag.get_text(strip=True),
+                    "title": real_title_tag.get_text(strip=True),
                     "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
                     "url": href,
                     "location": "São Sebastião",
                     "category": "Venda"
                 })
     except Exception as e:
-        print(f"Erro IZ: {e}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro IZ: {e}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fim IZ: {len(ads)} ads.")
     return ads
 
 async def scrape_tropical(page):
@@ -254,21 +270,23 @@ async def scrape_adimov(page):
             title_tag = card.select_one('.c49-property-card_header h2')
             price_tag = card.select_one('.c49-property-card_price')
             
-            if link_tag and title_tag:
+            if link_tag and (title_tag or card.select_one('h2')):
+                real_title_tag = title_tag or card.select_one('h2')
                 href = link_tag.get('href')
                 if not href.startswith('http'): href = "https://www.adimov.com.br" + href
                 raw_id = href.split('/')[-1].split('?')[0]
                 ad_id = f"adi-{raw_id}"
                 ads.append({
                     "id": ad_id,
-                    "title": title_tag.get_text(strip=True),
+                    "title": real_title_tag.get_text(strip=True),
                     "price": price_tag.get_text(strip=True) if price_tag else "Consulte",
                     "url": href,
                     "location": "São Sebastião",
                     "category": "Venda"
                 })
     except Exception as e:
-        print(f"Erro Adimov: {e}")
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Erro Adimov: {e}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Fim ADIMOV: {len(ads)} ads.")
     return ads
 
 async def process_owner_contacts():
@@ -307,7 +325,7 @@ async def process_owner_contacts():
     conn.close()
 
 async def main():
-    print("--- Início da Rodada de Monitoramento ---")
+    print(f"--- Início da Rodada de Monitoramento: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
     init_db()
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -315,37 +333,61 @@ async def main():
         page = await context.new_page()
         
         # 1. OLX - Donos
-        ads_olx_owners = await scrape_olx(page, "https://www.olx.com.br/imoveis/estado-sp/vale-do-paraiba-e-litoral-norte/sao-sebastiao?f=p", "owner")
-        save_new_imoveis(ads_olx_owners, "olx", "owner")
+        try:
+            ads_olx_owners = await scrape_olx(page, "https://www.olx.com.br/imoveis/estado-sp/vale-do-paraiba-e-litoral-norte/sao-sebastiao?f=p", "owner")
+            save_new_imoveis(ads_olx_owners, "olx", "owner")
+        except Exception as e:
+            print(f"Erro crítico OLX Owners: {e}")
         
         # 2. OLX - Profissionais
-        ads_olx_prof = await scrape_olx(page, "https://www.olx.com.br/imoveis/estado-sp/vale-do-paraiba-e-litoral-norte/sao-sebastiao?f=c", "competitor")
-        save_new_imoveis(ads_olx_prof, "olx", "competitor")
+        try:
+            ads_olx_prof = await scrape_olx(page, "https://www.olx.com.br/imoveis/estado-sp/vale-do-paraiba-e-litoral-norte/sao-sebastiao?f=c", "competitor")
+            save_new_imoveis(ads_olx_prof, "olx", "competitor")
+        except Exception as e:
+            print(f"Erro crítico OLX Professional: {e}")
         
         # 3. Riviera Imóveis
-        ads_riviera = await scrape_riviera(page)
-        save_new_imoveis(ads_riviera, "riviera", "competitor")
+        try:
+            ads_riviera = await scrape_riviera(page)
+            save_new_imoveis(ads_riviera, "riviera", "competitor")
+        except Exception as e:
+            print(f"Erro crítico Riviera: {e}")
         
         # 4. IZ Imóveis
-        ads_iz = await scrape_iz(page)
-        save_new_imoveis(ads_iz, "iz", "competitor")
+        try:
+            ads_iz = await scrape_iz(page)
+            save_new_imoveis(ads_iz, "iz", "competitor")
+        except Exception as e:
+            print(f"Erro crítico IZ: {e}")
         
         # 5. Tropical Imobiliária
-        ads_tropical = await scrape_tropical(page)
-        save_new_imoveis(ads_tropical, "tropical", "competitor")
+        try:
+            ads_tropical = await scrape_tropical(page)
+            save_new_imoveis(ads_tropical, "tropical", "competitor")
+        except Exception as e:
+            print(f"Erro crítico Tropical: {e}")
         
         # 6. Adimov
-        ads_adimov = await scrape_adimov(page)
-        save_new_imoveis(ads_adimov, "adimov", "competitor")
+        try:
+            ads_adimov = await scrape_adimov(page)
+            save_new_imoveis(ads_adimov, "adimov", "competitor")
+        except Exception as e:
+            print(f"Erro crítico Adimov: {e}")
         
         # Notificar novos via Telegram (Bot)
-        notify_new_ads()
+        try:
+            notify_new_ads()
+        except Exception as e:
+            print(f"Erro ao notificar: {e}")
         
         # Processar contatos via IA (Somente novos proprietários)
-        await process_owner_contacts()
+        try:
+            await process_owner_contacts()
+        except Exception as e:
+            print(f"Erro no fluxo de IA: {e}")
         
         await browser.close()
-    print("--- Fim da Rodada ---")
+    print(f"--- Fim da Rodada: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---")
 
 if __name__ == "__main__":
     asyncio.run(main())

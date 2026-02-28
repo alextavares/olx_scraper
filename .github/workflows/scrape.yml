@@ -2,8 +2,8 @@ name: OLX Scraper Automatizado
 
 on:
   schedule:
-    # Roda a cada 4 horas (0, 4, 8, 12, 16, 20)
-    - cron: '0 */4 * * *'
+    # Roda uma vez por dia (Ó meia-noite UTC)
+    - cron: '0 0 * * *'
   workflow_dispatch: # Permite rodar manualmente clicando num botão no GitHub
 
 jobs:
