@@ -360,12 +360,12 @@ async def main():
         except Exception as e:
             print(f"Erro crítico IZ: {e}")
         
-        # 5. Tropical Imobiliária
-        try:
-            ads_tropical = await scrape_tropical(page)
-            save_new_imoveis(ads_tropical, "tropical", "competitor")
-        except Exception as e:
-            print(f"Erro crítico Tropical: {e}")
+        # 5. Tropical Imobiliária (Desativado temporariamente - Bloqueio antibot forte)
+        # try:
+        #     ads_tropical = await scrape_tropical(page)
+        #     save_new_imoveis(ads_tropical, "tropical", "competitor")
+        # except Exception as e:
+        #     print(f"Erro crítico Tropical: {e}")
         
         # 6. Adimov
         try:
